@@ -1,0 +1,30 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Repo Kopyalaniyor
+      uses: actions/checkout@v3
+
+    - name: Java 17 Kuruluyor
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Maven ile Derleniyor
+      run: mvn -B package --file pom.xml
+
+    - name: JAR Dosyasi Yukleniyor
+      uses: actions/upload-artifact@v3
+      with:
+        name: TrapPlugin-JAR
+        path: target/*.jar
