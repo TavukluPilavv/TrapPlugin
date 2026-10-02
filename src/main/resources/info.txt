@@ -1,0 +1,5 @@
+========================================
+TrapPlugin v1.0.0
+Geliştirici: Craftaxo
+Açıklama: Minecraft sunucuları için Chunk tabanlı Trap yönetim eklentisi.
+========================================
