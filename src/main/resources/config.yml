@@ -1,0 +1,14 @@
+# ========================================== #
+#         TrapPlugin Konfigurasyon           #
+# ========================================== #
+
+# Trap satin alma veya satma fiyati
+trap-price: 60000.0
+
+# Trap varsayilan ayarlari
+settings:
+  default-pvp: true
+  allow-fly-by-default: false
+
+# Traplerin kaydedildigi veri alani (Otomatik dolacaktir)
+traps: {}
