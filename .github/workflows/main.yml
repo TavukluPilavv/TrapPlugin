@@ -24,7 +24,7 @@ jobs:
       run: mvn -B package --file pom.xml
 
     - name: JAR Dosyasi Yukleniyor
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: TrapPlugin-JAR
         path: target/*.jar
