@@ -1,14 +1,13 @@
 # ========================================== #
-#         TrapPlugin Konfigurasyon           #
+#      AxoCrafT TrapPlugin Konfigürasyon      #
 # ========================================== #
 
-# Trap satin alma veya satma fiyati
+# Trap satın alma ve satış fiyatı (60.000$)
 trap-price: 60000.0
 
-# Trap varsayilan ayarlari
-settings:
-  default-pvp: true
-  allow-fly-by-default: false
+# Oluşturulan trap sayacı (Otomatik artar)
+trap-count: 0
 
-# Traplerin kaydedildigi veri alani (Otomatik dolacaktir)
+# Traplerin kaydedildiği veri alanı (Otomatik dolacaktır)
 traps: {}
+
