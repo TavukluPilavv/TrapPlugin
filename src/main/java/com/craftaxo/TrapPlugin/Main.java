@@ -34,6 +34,7 @@ import java.util.*;
 public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCompleter {
 
     private static Economy econ = null;
+    // Parlayan Gökkuşağı Prefix
     private final String PREFIX = "§c[§eA§ax§bo§dT§er§aa§bp§c] §f";
     private final HashMap<String, String> invites = new HashMap<>();
     private final Set<String> sellConfirmations = new HashSet<>();
@@ -78,7 +79,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         return false;
     }
 
-    // Silinen ve aktif trapleri tam tarayarak EN KÜÇÜK BOŞ ID'yi bulan kesin çözüm
+    // Maksimum 80 Trap Sınırı ve Sıralı ID Sistemi
     private int getNextAvailableTrapId() {
         FileConfiguration config = getConfig();
         if (!config.contains("traps")) return 1;
@@ -90,11 +91,12 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             }
         }
 
-        int id = 1;
-        while (activeIds.contains(id)) {
-            id++;
+        for (int id = 1; id <= 80; id++) {
+            if (!activeIds.contains(id)) {
+                return id;
+            }
         }
-        return id;
+        return -1; // 80 Doldu
     }
 
     @Override
@@ -256,12 +258,20 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         String currentKey = getChunkKey(currentChunk);
         FileConfiguration config = getConfig();
 
-        if (args.length == 1) {
-            int trapId = getNextAvailableTrapId();
-            String trapName = "Trap #" + trapId;
+        // ÇAKIŞMA KONTROLÜ: Aynı yerde trap var mı?
+        if (config.contains("traps." + currentKey) && !config.getBoolean("traps." + currentKey + ".deleted", false)) {
+            player.sendMessage(PREFIX + "§cBu trap zaten oluşturulmuş!");
+            return;
+        }
 
-            // Eski silinen kayıt varsa temizle ve yenisini yaz
-            config.set("traps." + currentKey, null);
+        int trapId = getNextAvailableTrapId();
+        if (trapId == -1) {
+            player.sendMessage(PREFIX + "§cMaksimum 80 trap sınırına ulaşıldı! Yeni trap oluşturulamaz.");
+            return;
+        }
+
+        if (args.length == 1) {
+            String trapName = "Trap #" + trapId;
 
             config.set("traps." + currentKey + ".id", trapId);
             config.set("traps." + currentKey + ".name", trapName);
@@ -320,7 +330,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                     }
                     selections.add(currentKey);
 
-                    int trapId = getNextAvailableTrapId();
                     String mainKey = selections.get(0);
                     String trapName = "Trap #" + trapId;
 
@@ -438,6 +447,10 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         if (!config.contains("traps." + key)) {
             int trapId = getNextAvailableTrapId();
+            if (trapId == -1) {
+                player.sendMessage(PREFIX + "§cMaksimum 80 trap sınırına ulaşıldı!");
+                return;
+            }
             config.set("traps." + key + ".id", trapId);
             config.set("traps." + key + ".name", "Trap #" + trapId);
         }
