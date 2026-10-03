@@ -37,8 +37,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
     private final String PREFIX = "§d[AxoTrap] §f";
     private final HashMap<String, String> invites = new HashMap<>();
     private final Set<String> sellConfirmations = new HashSet<>();
-
-    // L-Trap Oluşturma Süreci (Player UUID -> Seçilen Chunk Listesi)
     private final HashMap<UUID, List<String>> lTrapSelections = new HashMap<>();
 
     @Override
@@ -90,15 +88,13 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             ));
             if (sender.isOp()) {
                 completions.add("create");
-                completions.add("l");
+                completions.add("sil");
             }
             return completions;
-        } else if (args.length == 2 && args[0].equalsIgnoreCase("l")) {
-            return Arrays.asList("kısım", "kisim");
-        } else if (args.length == 3 && (args[1].equalsIgnoreCase("kısım") || args[1].equalsIgnoreCase("kisim"))) {
-            return Arrays.asList("1", "2", "3");
-        } else if (args.length == 4) {
-            return Arrays.asList("kabul");
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("create")) {
+            return Arrays.asList("L", "kısım", "kisim");
+        } else if (args.length == 3 && args[0].equalsIgnoreCase("create") && args[1].equalsIgnoreCase("L")) {
+            return Arrays.asList("iptal", "kısım");
         }
         return Collections.emptyList();
     }
@@ -124,8 +120,11 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 handleClaim(player);
                 break;
             case "create":
-            case "l":
-                handleLSelection(player, args);
+                handleCreateCommand(player, args);
+                break;
+            case "sil":
+                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap sil <TrapAdı/ID>");
+                else handleSil(player, args[1]);
                 break;
             case "list":
             case "menu":
@@ -221,11 +220,14 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         player.sendMessage("§b/trap izin <oyuncu> <yetki> <ac/kapa> §7- Ozel izin verir.");
         player.sendMessage("§b/trap yetki <oyuncu> §7- Oyuncunun izinlerini gosterir.");
         if (player.isOp()) {
-            player.sendMessage("§c/trap l §7- OP Özel: L seklinde kısımları seçerek trap olusturur.");
+            player.sendMessage("§c/trap create §7- Bulundugun chunku tekli trap yapar.");
+            player.sendMessage("§c/trap create L §7- Kısımları seçerek L-Trap olusturur.");
+            player.sendMessage("§c/trap create L iptal §7- Seçim sürecini iptal eder.");
+            player.sendMessage("§c/trap sil <adı> §7- Trap kaydını siler.");
         }
     }
 
-    private void handleLSelection(Player player, String[] args) {
+    private void handleCreateCommand(Player player, String[] args) {
         if (!player.isOp()) {
             player.sendMessage(PREFIX + "§cBu komutu sadece OP yetkisi olanlar kullanabilir!");
             return;
@@ -233,71 +235,136 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         Chunk currentChunk = player.getLocation().getChunk();
         String currentKey = getChunkKey(currentChunk);
+        FileConfiguration config = getConfig();
 
         if (args.length == 1) {
-            // Süreci Başlat
-            List<String> selections = new ArrayList<>();
-            selections.add(currentKey);
-            lTrapSelections.put(player.getUniqueId(), selections);
+            // Normal 1 Chunk Trap Oluşturma
+            int count = config.getInt("trap-count", 0) + 1;
+            config.set("trap-count", count);
 
-            player.sendMessage(PREFIX + "§aAxoTrap L-Trap Oluşturma Başlatıldı!");
-            player.sendMessage(PREFIX + "§eKısım 1 (Bulunduğunuz Chunk) seçildi.");
-            player.sendMessage(PREFIX + "§fDiğer chunk'a gidip §b/trap l kısım 2 kabul §fyazın.");
+            String trapName = "Trap #" + count;
+            config.set("traps." + currentKey + ".name", trapName);
+            config.set("traps." + currentKey + ".owner", "NONE");
+            config.set("traps." + currentKey + ".health", 5000);
+            config.set("traps." + currentKey + ".max-health", 5000);
+            config.set("traps." + currentKey + ".bank", 0.0);
+            config.set("traps." + currentKey + ".pvp", true);
+            config.set("traps." + currentKey + ".for-sale", true);
+            saveConfig();
+
+            player.sendMessage(PREFIX + "§a" + trapName + " (1 Chunk) başarıyla oluşturuldu ve /trap list menüsüne eklendi!");
             return;
         }
 
-        if (args.length >= 4 && (args[1].equalsIgnoreCase("kısım") || args[1].equalsIgnoreCase("kisim")) && args[3].equalsIgnoreCase("kabul")) {
-            List<String> selections = lTrapSelections.get(player.getUniqueId());
-            if (selections == null) {
-                player.sendMessage(PREFIX + "§cÖnce §b/trap l §cyazarak L-Trap oluşturmayı başlatmalısınız!");
+        if (args.length >= 2 && args[1].equalsIgnoreCase("L")) {
+            if (args.length >= 3 && args[2].equalsIgnoreCase("iptal")) {
+                lTrapSelections.remove(player.getUniqueId());
+                player.sendMessage(PREFIX + "§cAxoTrap L-Trap seçim süreci tamamen iptal edildi ve sıfırlandı!");
                 return;
             }
 
-            String stage = args[2];
-
-            if (stage.equals("2")) {
-                if (selections.contains(currentKey)) {
-                    player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
-                    return;
-                }
+            // L-Trap Başlatma veya Kısım Seçme
+            if (args.length == 2) {
+                List<String> selections = new ArrayList<>();
                 selections.add(currentKey);
-                player.sendMessage(PREFIX + "§aAxoTrap Kısım 2 seçildi!");
-                player.sendMessage(PREFIX + "§fSon chunk'a gidip §b/trap l kısım 3 kabul §fyazın.");
-            } else if (stage.equals("3")) {
-                if (selections.contains(currentKey)) {
-                    player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
-                    return;
-                }
-                selections.add(currentKey);
+                lTrapSelections.put(player.getUniqueId(), selections);
 
-                // 3 Kısım Seçildi, Tek Bir Trap Olarak Kaydet
-                FileConfiguration config = getConfig();
-                int count = config.getInt("trap-count", 0) + 1;
-                config.set("trap-count", count);
-
-                String mainKey = selections.get(0); // İlk chunk ana key
-                String trapName = "Trap #" + count;
-
-                for (String key : selections) {
-                    config.set("traps." + key + ".parent", mainKey);
-                }
-
-                config.set("traps." + mainKey + ".name", trapName);
-                config.set("traps." + mainKey + ".owner", "NONE");
-                config.set("traps." + mainKey + ".health", 5000);
-                config.set("traps." + mainKey + ".max-health", 5000);
-                config.set("traps." + mainKey + ".bank", 0.0);
-                config.set("traps." + mainKey + ".pvp", true);
-                config.set("traps." + mainKey + ".for-sale", true);
-                config.set("traps." + mainKey + ".chunks", selections);
-                saveConfig();
-
-                lTrapSelections.remove(player.getUniqueId());
-                player.sendMessage(PREFIX + "§aAxoTrap Kısım 3 seçildi!");
-                player.sendMessage(PREFIX + "§aTebrikler! L-Şeklindeki " + trapName + " (3 Chunk) başarıyla oluşturuldu ve satışa çıkarıldı!");
+                player.sendMessage(PREFIX + "§aAxoTrap L-Trap Oluşturma Başlatıldı!");
+                player.sendMessage(PREFIX + "§eKısım 1 (Bulunduğunuz Chunk) seçildi.");
+                player.sendMessage(PREFIX + "§fDiğer chunk'a gidip §b/trap create L kısım 2 kabul §fyazın.");
+                player.sendMessage(PREFIX + "§7(Sıfırlamak için: /trap create L iptal)");
+                return;
             }
+
+            if (args.length >= 5 && (args[2].equalsIgnoreCase("kısım") || args[2].equalsIgnoreCase("kisim")) && args[4].equalsIgnoreCase("kabul")) {
+                List<String> selections = lTrapSelections.get(player.getUniqueId());
+                if (selections == null) {
+                    player.sendMessage(PREFIX + "§cÖnce §b/trap create L §cyazarak oluşturmayı başlatmalısınız!");
+                    return;
+                }
+
+                String stage = args[3];
+
+                if (stage.equals("2")) {
+                    if (selections.contains(currentKey)) {
+                        player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
+                        return;
+                    }
+                    selections.add(currentKey);
+                    player.sendMessage(PREFIX + "§aAxoTrap Kısım 2 seçildi!");
+                    player.sendMessage(PREFIX + "§fSon chunk'a gidip §b/trap create L kısım 3 kabul §fyazın.");
+                } else if (stage.equals("3")) {
+                    if (selections.contains(currentKey)) {
+                        player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
+                        return;
+                    }
+                    selections.add(currentKey);
+
+                    int count = config.getInt("trap-count", 0) + 1;
+                    config.set("trap-count", count);
+
+                    String mainKey = selections.get(0);
+                    String trapName = "Trap #" + count;
+
+                    for (String key : selections) {
+                        config.set("traps." + key + ".parent", mainKey);
+                    }
+
+                    config.set("traps." + mainKey + ".name", trapName);
+                    config.set("traps." + mainKey + ".owner", "NONE");
+                    config.set("traps." + mainKey + ".health", 5000);
+                    config.set("traps." + mainKey + ".max-health", 5000);
+                    config.set("traps." + mainKey + ".bank", 0.0);
+                    config.set("traps." + mainKey + ".pvp", true);
+                    config.set("traps." + mainKey + ".for-sale", true);
+                    config.set("traps." + mainKey + ".chunks", selections);
+                    saveConfig();
+
+                    lTrapSelections.remove(player.getUniqueId());
+                    player.sendMessage(PREFIX + "§aAxoTrap Kısım 3 seçildi!");
+                    player.sendMessage(PREFIX + "§aTebrikler! L-Şeklindeki " + trapName + " (3 Chunk) oluşturuldu ve /trap list menüsüne eklendi!");
+                }
+            } else {
+                player.sendMessage(PREFIX + "§cKullanım: §b/trap create L kısım <2/3> kabul");
+            }
+        }
+    }
+
+    private void handleSil(Player player, String trapIdentifier) {
+        if (!player.isOp()) {
+            player.sendMessage(PREFIX + "§cBu komutu sadece OPlar kullanabilir!");
+            return;
+        }
+
+        FileConfiguration config = getConfig();
+        if (!config.contains("traps")) {
+            player.sendMessage(PREFIX + "§cKayıtlı trap bulunamadı!");
+            return;
+        }
+
+        String targetKey = null;
+
+        for (String key : config.getConfigurationSection("traps").getKeys(false)) {
+            String name = config.getString("traps." + key + ".name", "");
+            if (key.equalsIgnoreCase(trapIdentifier) || name.equalsIgnoreCase(trapIdentifier) || name.equalsIgnoreCase("Trap #" + trapIdentifier)) {
+                targetKey = key;
+                break;
+            }
+        }
+
+        if (targetKey != null) {
+            // Yan chunkları temizle
+            if (config.contains("traps." + targetKey + ".chunks")) {
+                List<String> subChunks = config.getStringList("traps." + targetKey + ".chunks");
+                for (String subKey : subChunks) {
+                    config.set("traps." + subKey, null);
+                }
+            }
+            config.set("traps." + targetKey, null);
+            saveConfig();
+            player.sendMessage(PREFIX + "§a" + trapIdentifier + " başarıyla silindi!");
         } else {
-            player.sendMessage(PREFIX + "§cKullanım: §b/trap l kısım <2/3> kabul");
+            player.sendMessage(PREFIX + "§cBelirtilen trap bulunamadı!");
         }
     }
 
@@ -378,7 +445,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             for (String key : config.getConfigurationSection("traps").getKeys(false)) {
                 if (slot >= 54) break;
 
-                // Yan chunk kayıtlarını menüde gösterme, sadece ana kayıtları göster
+                // Yan chunk bağlantısı olanları menüde tek kayda düşür
                 if (config.contains("traps." + key + ".parent")) continue;
 
                 String name = config.getString("traps." + key + ".name", "Trap");
@@ -864,6 +931,8 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 actionBarMsg = "§d[AxoTrap] §e✦ Trap " + ownerName + " §8| §aCan: §e" + hp + "/" + maxHp;
             }
 
+            // 10 tick Fade-In, 60 tick (3 saniye) kalma ve 20 tick yavaşça kaybolma (Fade-Out)
+            player.sendTitle("", actionBarMsg, 10, 60, 20);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(actionBarMsg));
         }
 
