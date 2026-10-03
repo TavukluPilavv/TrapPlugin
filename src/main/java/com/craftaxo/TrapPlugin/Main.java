@@ -1,5 +1,6 @@
 package com.craftaxo.trapplugin;
 
+import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.milkbowl.vault.economy.Economy;
@@ -95,6 +96,13 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
             case "kabul":
                 handleAccept(player);
                 break;
+            case "reddet":
+                handleReject(player);
+                break;
+            case "trust":
+                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap trust <oyuncu>");
+                else handleTrust(player, args[1]);
+                break;
             case "satısakoy":
             case "satisakoy":
                 if (args.length > 1 && args[1].equalsIgnoreCase("onay")) {
@@ -154,6 +162,8 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         player.sendMessage("§b/trap list §7- Trap menusunu acar.");
         player.sendMessage("§b/trap invite <oyuncu> §7- Trap'e davet eder.");
         player.sendMessage("§b/trap kabul §7- Gelen daveti kabul eder.");
+        player.sendMessage("§b/trap reddet §7- Gelen daveti reddeder.");
+        player.sendMessage("§b/trap trust <oyuncu> §7- Oyuncuya blok/cit yetkisi verir.");
         player.sendMessage("§b/trap satısakoy §7- Trapi satisa koyar.");
         player.sendMessage("§b/trap fly §7- Trap icinde ucmani saglar.");
         player.sendMessage("§b/trap setspawn §7- Trapin spawn noktasini ayarlar.");
@@ -187,9 +197,11 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         int count = config.getInt("trap-count", 0) + 1;
         config.set("trap-count", count);
 
-        String trapName = "Trap " + count;
+        String trapName = "Trap #" + count;
         config.set("traps." + key + ".name", trapName);
         config.set("traps." + key + ".owner", "NONE");
+        config.set("traps." + key + ".health", 30000);
+        config.set("traps." + key + ".max-health", 30000);
         config.set("traps." + key + ".bank", 0.0);
         config.set("traps." + key + ".pvp", true);
         saveConfig();
@@ -223,10 +235,12 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         if (!config.contains("traps." + key)) {
             int count = config.getInt("trap-count", 0) + 1;
             config.set("trap-count", count);
-            config.set("traps." + key + ".name", "Trap " + count);
+            config.set("traps." + key + ".name", "Trap #" + count);
         }
 
         config.set("traps." + key + ".owner", player.getUniqueId().toString());
+        config.set("traps." + key + ".health", 30000);
+        config.set("traps." + key + ".max-health", 30000);
         config.set("traps." + key + ".bank", 0.0);
         config.set("traps." + key + ".pvp", true);
         saveConfig();
@@ -378,7 +392,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         if (econ != null) econ.depositPlayer(player, price);
         sellConfirmations.remove(uuid);
 
-        player.sendMessage(PREFIX + "Trap başarıyla satıldı vs.");
+        player.sendMessage(PREFIX + "AxoCrafT trap başarıyla satıldı.");
     }
 
     private void handleInvite(Player player, String targetName) {
@@ -401,9 +415,14 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         player.sendMessage(PREFIX + "§e" + target.getName() + " §foyuncusuna davet gönderildi.");
 
         TextComponent msg = new TextComponent(PREFIX + "§e" + player.getName() + " §fsizi trapine davet etti! ");
-        TextComponent button = new TextComponent("§b§l[KABUL ET]");
-        button.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/trap kabul"));
-        msg.addExtra(button);
+        TextComponent buttonKabul = new TextComponent("§a§l[KABUL ET] ");
+        buttonKabul.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/trap kabul"));
+
+        TextComponent buttonRed = new TextComponent("§c§l[REDDET]");
+        buttonRed.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/trap reddet"));
+
+        msg.addExtra(buttonKabul);
+        msg.addExtra(buttonRed);
 
         target.spigot().sendMessage(msg);
     }
@@ -427,6 +446,49 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
         }
 
         player.sendMessage(PREFIX + "§aDavet kabul edildi! Artık bu trap'e üyesiniz.");
+    }
+
+    private void handleReject(Player player) {
+        String uuid = player.getUniqueId().toString();
+
+        if (!invites.containsKey(uuid)) {
+            player.sendMessage(PREFIX + "§cReddedilecek bekleyen trap davetiniz yok!");
+            return;
+        }
+
+        invites.remove(uuid);
+        player.sendMessage(PREFIX + "§cTrap davetini reddettiniz.");
+    }
+
+    private void handleTrust(Player player, String targetName) {
+        Chunk chunk = player.getLocation().getChunk();
+        String key = getChunkKey(chunk);
+        FileConfiguration config = getConfig();
+
+        if (!config.contains("traps." + key) || !config.getString("traps." + key + ".owner").equals(player.getUniqueId().toString())) {
+            player.sendMessage(PREFIX + "§cSadece trap sahibi trust verebilir!");
+            return;
+        }
+
+        Player target = Bukkit.getPlayer(targetName);
+        if (target == null) {
+            player.sendMessage(PREFIX + "§cOyuncu bulunamadı!");
+            return;
+        }
+
+        String targetUUID = target.getUniqueId().toString();
+        List<String> members = config.getStringList("traps." + key + ".members");
+        if (!members.contains(targetUUID)) {
+            members.add(targetUUID);
+            config.set("traps." + key + ".members", members);
+        }
+
+        config.set("traps." + key + ".permissions." + targetUUID + ".blokkoy", true);
+        config.set("traps." + key + ".permissions." + targetUUID + ".blokkir", true);
+        config.set("traps." + key + ".permissions." + targetUUID + ".cit", true);
+        saveConfig();
+
+        player.sendMessage(PREFIX + "§a" + target.getName() + " oyuncusuna blok kırma, koyma ve çit açma yetkisi (Trust) verildi!");
     }
 
     private void handleKick(Player player, String targetName) {
@@ -635,22 +697,28 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        Chunk fromChunk = event.getFrom().getChunk();
         Chunk toChunk = event.getTo().getChunk();
+        Player player = event.getPlayer();
+        String key = getChunkKey(toChunk);
+        FileConfiguration config = getConfig();
 
-        if (!fromChunk.equals(toChunk)) {
-            Player player = event.getPlayer();
-            String key = getChunkKey(toChunk);
-            FileConfiguration config = getConfig();
+        if (config.contains("traps." + key)) {
+            String name = config.getString("traps." + key + ".name", "Trap");
+            String owner = config.getString("traps." + key + ".owner", "NONE");
 
-            if (config.contains("traps." + key)) {
-                String owner = config.getString("traps." + key + ".owner", "NONE");
-                if (!owner.equals("NONE")) {
-                    String ownerName = Bukkit.getOfflinePlayer(UUID.fromString(owner)).getName();
-                    player.sendMessage(PREFIX + "§eTrap Sahibi: §f" + ownerName);
-                }
+            String actionBarMsg;
+            if (owner.equals("NONE")) {
+                actionBarMsg = "§d[AxoCrafT] §e⚔ §a" + name + " §8| §cTrap Sahibi Yok";
+            } else {
+                int hp = config.getInt("traps." + key + ".health", 30000);
+                int maxHp = config.getInt("traps." + key + ".max-health", 30000);
+                actionBarMsg = "§d[AxoCrafT] §e⚔ §a" + name + " §8| §aSahibi: §f" + player.getName() + " §8| §aCan: §e" + hp + "/" + maxHp;
             }
 
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(actionBarMsg));
+        }
+
+        if (!event.getFrom().getChunk().equals(toChunk)) {
             if (player.isFlying() && !player.isOp()) {
                 if (!hasSpecificPerm(player, toChunk, "fly")) {
                     player.setFlying(false);
