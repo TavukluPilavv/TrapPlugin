@@ -238,7 +238,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         FileConfiguration config = getConfig();
 
         if (args.length == 1) {
-            // Normal 1 Chunk Trap Oluşturma
             int count = config.getInt("trap-count", 0) + 1;
             config.set("trap-count", count);
 
@@ -263,7 +262,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 return;
             }
 
-            // L-Trap Başlatma veya Kısım Seçme
             if (args.length == 2) {
                 List<String> selections = new ArrayList<>();
                 selections.add(currentKey);
@@ -306,10 +304,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                     String mainKey = selections.get(0);
                     String trapName = "Trap #" + count;
 
-                    for (String key : selections) {
-                        config.set("traps." + key + ".parent", mainKey);
-                    }
-
+                    // Ana kaydı kaydet
                     config.set("traps." + mainKey + ".name", trapName);
                     config.set("traps." + mainKey + ".owner", "NONE");
                     config.set("traps." + mainKey + ".health", 5000);
@@ -318,6 +313,12 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                     config.set("traps." + mainKey + ".pvp", true);
                     config.set("traps." + mainKey + ".for-sale", true);
                     config.set("traps." + mainKey + ".chunks", selections);
+
+                    // Yan chunk'ları ana kayda bağla
+                    for (int i = 1; i < selections.size(); i++) {
+                        config.set("traps." + selections.get(i) + ".parent", mainKey);
+                    }
+                    
                     saveConfig();
 
                     lTrapSelections.remove(player.getUniqueId());
@@ -353,7 +354,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         if (targetKey != null) {
-            // Yan chunkları temizle
             if (config.contains("traps." + targetKey + ".chunks")) {
                 List<String> subChunks = config.getStringList("traps." + targetKey + ".chunks");
                 for (String subKey : subChunks) {
@@ -445,7 +445,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             for (String key : config.getConfigurationSection("traps").getKeys(false)) {
                 if (slot >= 54) break;
 
-                // Yan chunk bağlantısı olanları menüde tek kayda düşür
+                // Sadece ana trap kayıtlarını göster (yan chunk kayıtlarını atla)
                 if (config.contains("traps." + key + ".parent")) continue;
 
                 String name = config.getString("traps." + key + ".name", "Trap");
@@ -931,8 +931,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 actionBarMsg = "§d[AxoTrap] §e✦ Trap " + ownerName + " §8| §aCan: §e" + hp + "/" + maxHp;
             }
 
-            // 10 tick Fade-In, 60 tick (3 saniye) kalma ve 20 tick yavaşça kaybolma (Fade-Out)
-            player.sendTitle("", actionBarMsg, 10, 60, 20);
+            // Ortadaki Title kaldırıldı. Sadece alttaki ActionBar alanında bildirim gösterilir.
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(actionBarMsg));
         }
 
