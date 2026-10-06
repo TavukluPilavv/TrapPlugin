@@ -840,4 +840,187 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
     }
 
     private void handleFly(Player player) {
-        Chunk chunk = player.getLocation().getChunk
+        Chunk chunk = player.getLocation().getChunk();
+        if (hasSpecificPerm(player, chunk, "fly")) {
+            boolean canFly = !player.getAllowFlight();
+            player.setAllowFlight(canFly);
+            player.sendMessage(PREFIX + "Uçma modu: " + (canFly ? "§aAÇIK" : "§cKAPALI"));
+        } else {
+            player.sendMessage(PREFIX + "§cBu trapde fly kullanma yetkiniz yok!");
+        }
+    }
+
+    private void handlePvP(Player player, String status) {
+        Chunk chunk = player.getLocation().getChunk();
+        String key = getMainKey(getChunkKey(chunk));
+        FileConfiguration config = getConfig();
+
+        if (!config.contains("traps." + key) || !config.getString("traps." + key + ".owner").equals(player.getUniqueId().toString())) {
+            player.sendMessage(PREFIX + "§cSadece trap sahibi PvP modunu değiştirebilir!");
+            return;
+        }
+
+        boolean pvpState = status.equalsIgnoreCase("ac") || status.equalsIgnoreCase("aç");
+        config.set("traps." + key + ".pvp", pvpState);
+        saveConfig();
+
+        player.sendMessage(PREFIX + "Bu trap içinde PvP: " + (pvpState ? "§aAÇIK" : "§cKAPALI"));
+    }
+
+    private void handleDeposit(Player player, String amountStr) {
+        Chunk chunk = player.getLocation().getChunk();
+        String key = getMainKey(getChunkKey(chunk));
+        FileConfiguration config = getConfig();
+
+        try {
+            double amount = Double.parseDouble(amountStr);
+            if (amount <= 0) throw new NumberFormatException();
+
+            if (econ != null) {
+                if (econ.getBalance(player) < amount) {
+                    player.sendMessage(PREFIX + "§cYeterli paranız yok!");
+                    return;
+                }
+                econ.withdrawPlayer(player, amount);
+            }
+
+            double currentBank = config.getDouble("traps." + key + ".bank", 0.0);
+            config.set("traps." + key + ".bank", currentBank + amount);
+            saveConfig();
+
+            player.sendMessage(PREFIX + "Kasaya §e" + amount + "$ §fyatırıldı.");
+        } catch (NumberFormatException e) {
+            player.sendMessage(PREFIX + "§cGeçerli bir miktar girin!");
+        }
+    }
+
+    private void handleWithdraw(Player player, String amountStr) {
+        Chunk chunk = player.getLocation().getChunk();
+        String key = getMainKey(getChunkKey(chunk));
+        FileConfiguration config = getConfig();
+
+        if (!hasSpecificPerm(player, chunk, "withdraw")) {
+            player.sendMessage(PREFIX + "§cBu trap kasasından para çekme yetkiniz yok!");
+            return;
+        }
+
+        try {
+            double amount = Double.parseDouble(amountStr);
+            if (amount <= 0) throw new NumberFormatException();
+
+            double currentBank = config.getDouble("traps." + key + ".bank", 0.0);
+            if (currentBank < amount) {
+                player.sendMessage(PREFIX + "§cKasada yeterli para yok!");
+                return;
+            }
+
+            config.set("traps." + key + ".bank", currentBank - amount);
+            saveConfig();
+            if (econ != null) econ.depositPlayer(player, amount);
+
+            player.sendMessage(PREFIX + "Kasadan §e" + amount + "$ §fçekildi.");
+        } catch (NumberFormatException e) {
+            player.sendMessage(PREFIX + "§cGeçerli bir miktar girin!");
+        }
+    }
+
+    @EventHandler
+    public void onEntityDamage(EntityDamageByEntityEvent event) {
+        if (event.getEntity() instanceof Player && event.getDamager() instanceof Player) {
+            Player attacker = (Player) event.getDamager();
+            Chunk chunk = event.getEntity().getLocation().getChunk();
+            String key = getMainKey(getChunkKey(chunk));
+            FileConfiguration config = getConfig();
+
+            if (config.contains("traps." + key)) {
+                boolean pvpOpen = config.getBoolean("traps." + key + ".pvp", true);
+                if (!pvpOpen) {
+                    event.setCancelled(true);
+                    attacker.sendMessage(PREFIX + "§cBu trapda pvp kapali");
+                }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+        Chunk toChunk = event.getTo().getChunk();
+        Player player = event.getPlayer();
+        String key = getMainKey(getChunkKey(toChunk));
+        FileConfiguration config = getConfig();
+
+        if (config.contains("traps." + key)) {
+            String owner = config.getString("traps." + key + ".owner", "NONE");
+            String trapName = config.getString("traps." + key + ".name", "Trap");
+            int hp = config.getInt("traps." + key + ".health", 5000);
+            int maxHp = config.getInt("traps." + key + ".max-health", 5000);
+
+            String ownerText = owner.equals("NONE") ? "§eSahibi Yok" : "§b" + config.getString("traps." + key + ".owner-name", Bukkit.getOfflinePlayer(UUID.fromString(owner)).getName());
+
+            String actionBarMsg = "§c[§eA§ax§bo§dT§er§aa§bp§c] §e🛡 " + trapName + " §8| §fSahibi: " + ownerText + " §8| §aCan: §e" + hp + "/" + maxHp;
+
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(actionBarMsg));
+        }
+
+        if (!event.getFrom().getChunk().equals(toChunk)) {
+            if (player.isFlying() && !player.isOp()) {
+                if (!hasSpecificPerm(player, toChunk, "fly")) {
+                    player.setFlying(false);
+                    player.setAllowFlight(false);
+                    player.sendMessage(PREFIX + "§cYetkiniz olmayan bir alana geçtiğiniz için uçma kapatıldı!");
+                }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        Chunk chunk = event.getBlock().getChunk();
+        FileConfiguration config = getConfig();
+        String key = getMainKey(getChunkKey(chunk));
+
+        if (config.contains("traps." + key)) {
+            if (!hasSpecificPerm(event.getPlayer(), chunk, "blokkir")) {
+                event.setCancelled(true);
+                event.getPlayer().sendMessage(PREFIX + "§cBu trapde blok kırma yetkiniz yok!");
+            }
+        }
+    }
+
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        Chunk chunk = event.getBlock().getChunk();
+        FileConfiguration config = getConfig();
+        String key = getMainKey(getChunkKey(chunk));
+
+        if (config.contains("traps." + key)) {
+            if (!hasSpecificPerm(event.getPlayer(), chunk, "blokkoy")) {
+                event.setCancelled(true);
+                event.getPlayer().sendMessage(PREFIX + "§cBu trapde blok koyma yetkiniz yok!");
+            }
+        }
+    }
+
+    @EventHandler
+    public void onInteract(PlayerInteractEvent event) {
+        Block clicked = event.getClickedBlock();
+        if (clicked == null) return;
+
+        Chunk chunk = clicked.getChunk();
+        FileConfiguration config = getConfig();
+        String key = getMainKey(getChunkKey(chunk));
+
+        if (config.contains("traps." + key)) {
+            Material type = clicked.getType();
+            boolean isChest = type.name().contains("CHEST") || type.name().contains("SHULKER");
+            boolean isGate = type.name().contains("FENCE") || type.name().contains("DOOR") || type.name().contains("TRAPDOOR");
+
+            if (isChest || isGate) {
+                if (!hasSpecificPerm(event.getPlayer(), chunk, "cit")) {
+                    event.setCancelled(true);
+                    event.getPlayer().sendMessage(PREFIX + "§cBu trapde kapı, çit veya sandık açma yetkiniz yok!");
+                }
+            }
+        }
+    }
+}
