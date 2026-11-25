@@ -14,12 +14,15 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.TNTPrimed;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -38,6 +41,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
     private final HashMap<String, String> invites = new HashMap<>();
     private final Set<String> sellConfirmations = new HashSet<>();
     private final HashMap<UUID, List<String>> lTrapSelections = new HashMap<>();
+    private final HashMap<UUID, Double> pendingSellPrices = new HashMap<>();
 
     @Override
     public void onEnable() {
@@ -48,9 +52,13 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             getCommand("trap").setExecutor(this);
             getCommand("trap").setTabCompleter(this);
         }
+        if (getCommand("trapadmin") != null) {
+            getCommand("trapadmin").setExecutor(this);
+            getCommand("trapadmin").setTabCompleter(this);
+        }
         getServer().getPluginManager().registerEvents(this, this);
 
-        getLogger().info("AxoTrap Eklentisi Tam Surum Aktif!");
+        getLogger().info("AxoTrap Eklentisi Tam Surum Guncellendi ve Aktif!");
     }
 
     private boolean setupEconomy() {
@@ -99,7 +107,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!sender.isOp()) {
+        if (command.getName().equalsIgnoreCase("trap")) {
             if (args.length == 1) {
                 return Arrays.asList(
                         "claim", "list", "menu", "invite", "kabul", "reddet", "leave",
@@ -107,19 +115,16 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                         "withdraw", "kick", "pvp", "izin", "yetki"
                 );
             }
-            return Collections.emptyList();
-        }
-
-        if (args.length == 1) {
-            return Arrays.asList(
-                    "claim", "list", "menu", "invite", "kabul", "reddet", "leave",
-                    "trust", "satısakoy", "fly", "setspawn", "spawn", "deposit",
-                    "withdraw", "kick", "pvp", "izin", "yetki", "create", "sil"
-            );
-        } else if (args.length == 2 && args[0].equalsIgnoreCase("create")) {
-            return Arrays.asList("L", "kısım", "kisim");
-        } else if (args.length == 3 && args[0].equalsIgnoreCase("create") && args[1].equalsIgnoreCase("L")) {
-            return Arrays.asList("iptal", "kısım");
+        } else if (command.getName().equalsIgnoreCase("trapadmin")) {
+            if (sender.hasPermission("trapplugin.trapadmin.create") || sender.isOp()) {
+                if (args.length == 1) {
+                    return Arrays.asList("create", "sil");
+                } else if (args.length == 2 && args[0].equalsIgnoreCase("create")) {
+                    return Arrays.asList("L", "kısım", "kisim");
+                } else if (args.length == 3 && args[0].equalsIgnoreCase("create") && args[1].equalsIgnoreCase("L")) {
+                    return Arrays.asList("iptal", "kısım");
+                }
+            }
         }
         return Collections.emptyList();
     }
@@ -133,100 +138,117 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         Player player = (Player) sender;
 
-        if (args.length == 0) {
-            sendHelp(player);
-            return true;
-        }
+        if (command.getName().equalsIgnoreCase("trapadmin")) {
+            if (!player.hasPermission("trapplugin.trapadmin.create") && !player.isOp()) {
+                player.sendMessage(PREFIX + "§cBunu yapmak için yetkiniz yok!");
+                return true;
+            }
 
-        String sub = args[0].toLowerCase();
+            if (args.length == 0) {
+                player.sendMessage(PREFIX + "§cKullanım: §b/trapadmin create [L] veya /trapadmin sil <id>");
+                return true;
+            }
 
-        if (!player.isOp() && (sub.equals("create") || sub.equals("sil"))) {
-            player.sendMessage(PREFIX + "§cBöyle bir komut bulunamadı!");
-            return true;
-        }
-
-        switch (sub) {
-            case "claim":
-                handleClaim(player);
-                break;
-            case "create":
+            String sub = args[0].toLowerCase();
+            if (sub.equals("create")) {
                 handleCreateCommand(player, args);
-                break;
-            case "sil":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap sil <Trap ID>");
+            } else if (sub.equals("sil")) {
+                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trapadmin sil <Trap ID>");
                 else handleSil(player, args[1]);
-                break;
-            case "list":
-            case "menu":
-                openTrapMenu(player);
-                break;
-            case "invite":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap invite <oyuncu>");
-                else handleInvite(player, args[1]);
-                break;
-            case "kabul":
-                handleAccept(player);
-                break;
-            case "reddet":
-                handleReject(player);
-                break;
-            case "leave":
-                handleLeave(player);
-                break;
-            case "trust":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap trust <oyuncu>");
-                else handleTrust(player, args[1]);
-                break;
-            case "satısakoy":
-            case "satisakoy":
-                if (args.length > 1 && args[1].equalsIgnoreCase("onay")) {
-                    handleSellConfirm(player);
-                } else {
-                    handleSellRequest(player);
-                }
-                break;
-            case "fly":
-                handleFly(player);
-                break;
-            case "setspawn":
-                handleSetSpawn(player);
-                break;
-            case "spawn":
-                handleSpawn(player);
-                break;
-            case "deposit":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap deposit <miktar>");
-                else handleDeposit(player, args[1]);
-                break;
-            case "withdraw":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap withdraw <miktar>");
-                else handleWithdraw(player, args[1]);
-                break;
-            case "kick":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap kick <oyuncu>");
-                else handleKick(player, args[1]);
-                break;
-            case "pvp":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap pvp <ac/kapat>");
-                else handlePvP(player, args[1]);
-                break;
-            case "izin":
-                if (args.length < 4) {
-                    player.sendMessage(PREFIX + "§cKullanım: §b/trap izin <oyuncu> <yetki> <ac/kapa>");
-                    player.sendMessage("§7Yetkiler: §bblokkoy, blokkir, cit, fly, withdraw");
-                } else {
-                    handleIzin(player, args[1], args[2], args[3]);
-                }
-                break;
-            case "yetki":
-                if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap yetki <oyuncu>");
-                else handleYetkiList(player, args[1]);
-                break;
-            default:
-                sendHelp(player);
-                break;
+            } else {
+                player.sendMessage(PREFIX + "§cBöyle bir komut bulunamadı!");
+            }
+            return true;
         }
 
+        if (command.getName().equalsIgnoreCase("trap")) {
+            if (args.length == 0) {
+                sendHelp(player);
+                return true;
+            }
+
+            String sub = args[0].toLowerCase();
+            switch (sub) {
+                case "claim":
+                    handleClaim(player);
+                    break;
+                case "list":
+                case "menu":
+                    openTrapMenu(player);
+                    break;
+                case "invite":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap invite <oyuncu>");
+                    else handleInvite(player, args[1]);
+                    break;
+                case "kabul":
+                    handleAccept(player);
+                    break;
+                case "reddet":
+                    handleReject(player);
+                    break;
+                case "leave":
+                    handleLeave(player);
+                    break;
+                case "trust":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap trust <oyuncu>");
+                    else handleTrust(player, args[1]);
+                    break;
+                case "satısakoy":
+                case "satisakoy":
+                    if (args.length > 1 && args[1].equalsIgnoreCase("onay")) {
+                        handleSellConfirm(player);
+                    } else {
+                        double price = 60000.0;
+                        if (args.length > 1) {
+                            try {
+                                price = Double.parseDouble(args[1]);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        handleSellRequest(player, price);
+                    }
+                    break;
+                case "fly":
+                    handleFly(player);
+                    break;
+                case "setspawn":
+                    handleSetSpawn(player);
+                    break;
+                case "spawn":
+                    handleSpawn(player);
+                    break;
+                case "deposit":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap deposit <miktar>");
+                    else handleDeposit(player, args[1]);
+                    break;
+                case "withdraw":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap withdraw <miktar>");
+                    else handleWithdraw(player, args[1]);
+                    break;
+                case "kick":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap kick <oyuncu>");
+                    else handleKick(player, args[1]);
+                    break;
+                case "pvp":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap pvp <ac/kapat>");
+                    else handlePvP(player, args[1]);
+                    break;
+                case "izin":
+                    if (args.length < 4) {
+                        player.sendMessage(PREFIX + "§cKullanım: §b/trap izin <oyuncu> <yetki> <ac/kapa>");
+                        player.sendMessage("§7Yetkiler: §bblokkoy, blokkir, cit, fly, withdraw");
+                    } else {
+                        handleIzin(player, args[1], args[2], args[3]);
+                    }
+                    break;
+                case "yetki":
+                    if (args.length < 2) player.sendMessage(PREFIX + "§cKullanım: §b/trap yetki <oyuncu>");
+                    else handleYetkiList(player, args[1]);
+                    break;
+                default:
+                    sendHelp(player);
+                    break;
+            }
+        }
         return true;
     }
 
@@ -237,32 +259,26 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         player.sendMessage("§b/trap invite <oyuncu> §7- Trap'e davet eder.");
         player.sendMessage("§b/trap kabul §7- Gelen daveti kabul eder.");
         player.sendMessage("§b/trap reddet §7- Gelen daveti reddeder.");
-        player.sendMessage("§b/trap leave §7- Uyesi oldugun trapden ayrilirsin.");
+        player.sendMessage("§b/trap leave §7- Trapten ayrilir / satisa koyar.");
         player.sendMessage("§b/trap trust <oyuncu> §7- Oyuncuya yetki verir.");
-        player.sendMessage("§b/trap satısakoy §7- Trapi satisa koyar.");
+        player.sendMessage("§b/trap satısakoy [fiyat] §7- Trapi belirledigin fiyata satisa koyar.");
         player.sendMessage("§b/trap fly §7- Trap icinde ucmani saglar.");
         player.sendMessage("§b/trap setspawn §7- Trapin spawn noktasini ayarlar.");
-        player.sendMessage("§b/trap spawn §7- Trap spawnina isinlar.");
+        player.sendMessage("§b/trap spawn §7- Nerede olursan ol trap spawnina isinlanir.");
         player.sendMessage("§b/trap deposit <miktar> §7- Kasaya para yatirir.");
         player.sendMessage("§b/trap withdraw <miktar> §7- Kasadan para ceker.");
         player.sendMessage("§b/trap kick <oyuncu> §7- Oyuncuyu trapden atar.");
         player.sendMessage("§b/trap pvp <ac/kapat> §7- PvP durumunu degistirir.");
         player.sendMessage("§b/trap izin <oyuncu> <yetki> <ac/kapa> §7- Ozel izin verir.");
         player.sendMessage("§b/trap yetki <oyuncu> §7- Oyuncunun izinlerini gosterir.");
-        if (player.isOp()) {
-            player.sendMessage("§c/trap create §7- Bulundugun chunku tekli trap yapar.");
-            player.sendMessage("§c/trap create L §7- Kısımları seçerek L-Trap olusturur.");
-            player.sendMessage("§c/trap create L iptal §7- Seçim sürecini iptal eder.");
-            player.sendMessage("§c/trap sil <id> §7- Trap kaydını siler.");
+        if (player.hasPermission("trapplugin.trapadmin.create") || player.isOp()) {
+            player.sendMessage("§c/trapadmin create §7- Bulundugun chunku trap yapar.");
+            player.sendMessage("§c/trapadmin create L §7- L-Trap olusturur.");
+            player.sendMessage("§c/trapadmin sil <id> §7- Trap kaydını siler.");
         }
     }
 
     private void handleCreateCommand(Player player, String[] args) {
-        if (!player.isOp()) {
-            player.sendMessage(PREFIX + "§cBöyle bir komut bulunamadı!");
-            return;
-        }
-
         Chunk currentChunk = player.getLocation().getChunk();
         String currentKey = getChunkKey(currentChunk);
         FileConfiguration config = getConfig();
@@ -274,13 +290,12 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         int trapId = getNextAvailableTrapId();
         if (trapId == -1) {
-            player.sendMessage(PREFIX + "§cMaksimum 80 trap sınırına ulaşıldı! Yeni trap oluşturulamaz.");
+            player.sendMessage(PREFIX + "§cMaksimum 80 trap sınırına ulaşıldı!");
             return;
         }
 
         if (args.length == 1) {
             String trapName = "Trap #" + trapId;
-
             config.set("traps." + currentKey + ".id", trapId);
             config.set("traps." + currentKey + ".name", trapName);
             config.set("traps." + currentKey + ".owner", "NONE");
@@ -291,14 +306,14 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             config.set("traps." + currentKey + ".for-sale", true);
             saveConfig();
 
-            player.sendMessage(PREFIX + "§a" + trapName + " (1 Chunk) başarıyla oluşturuldu ve /trap list menüsüne eklendi!");
+            player.sendMessage(PREFIX + "§a" + trapName + " başarıyla oluşturuldu!");
             return;
         }
 
         if (args.length >= 2 && args[1].equalsIgnoreCase("L")) {
             if (args.length >= 3 && args[2].equalsIgnoreCase("iptal")) {
                 lTrapSelections.remove(player.getUniqueId());
-                player.sendMessage(PREFIX + "§cAxoTrap L-Trap seçim süreci tamamen iptal edildi!");
+                player.sendMessage(PREFIX + "§cL-Trap seçim süreci iptal edildi!");
                 return;
             }
 
@@ -306,35 +321,24 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 List<String> selections = new ArrayList<>();
                 selections.add(currentKey);
                 lTrapSelections.put(player.getUniqueId(), selections);
-
-                player.sendMessage(PREFIX + "§aAxoTrap L-Trap Oluşturma Başlatıldı!");
-                player.sendMessage(PREFIX + "§eKısım 1 (Bulunduğunuz Chunk) seçildi.");
-                player.sendMessage(PREFIX + "§fDiğer chunk'a gidip §b/trap create L kısım 2 kabul §fyazın.");
+                player.sendMessage(PREFIX + "§aL-Trap Oluşturma Başlatıldı! Diğer chunk'a gidip §b/trapadmin create L kısım 2 kabul §fyazın.");
                 return;
             }
 
             if (args.length >= 5 && (args[2].equalsIgnoreCase("kısım") || args[2].equalsIgnoreCase("kisim")) && args[4].equalsIgnoreCase("kabul")) {
                 List<String> selections = lTrapSelections.get(player.getUniqueId());
                 if (selections == null) {
-                    player.sendMessage(PREFIX + "§cÖnce §b/trap create L §cyazarak oluşturmayı başlatmalısınız!");
+                    player.sendMessage(PREFIX + "§cÖnce §b/trapadmin create L §cyazmalısınız!");
                     return;
                 }
 
                 String stage = args[3];
-
                 if (stage.equals("2")) {
-                    if (selections.contains(currentKey)) {
-                        player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
-                        return;
-                    }
+                    if (selections.contains(currentKey)) { player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!"); return; }
                     selections.add(currentKey);
-                    player.sendMessage(PREFIX + "§aAxoTrap Kısım 2 seçildi!");
-                    player.sendMessage(PREFIX + "§fSon chunk'a gidip §b/trap create L kısım 3 kabul §fyazın.");
+                    player.sendMessage(PREFIX + "§aKısım 2 seçildi! Son chunk'a gidip §b/trapadmin create L kısım 3 kabul §fyazın.");
                 } else if (stage.equals("3")) {
-                    if (selections.contains(currentKey)) {
-                        player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!");
-                        return;
-                    }
+                    if (selections.contains(currentKey)) { player.sendMessage(PREFIX + "§cBu chunk'ı zaten seçtiniz!"); return; }
                     selections.add(currentKey);
 
                     String mainKey = selections.get(0);
@@ -356,19 +360,13 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
                     saveConfig();
                     lTrapSelections.remove(player.getUniqueId());
-
-                    player.sendMessage(PREFIX + "§aTebrikler! L-Şeklindeki " + trapName + " (3 Chunk) oluşturuldu ve /trap list menüsüne eklendi!");
+                    player.sendMessage(PREFIX + "§aL-Şeklindeki " + trapName + " başarıyla oluşturuldu!");
                 }
             }
         }
     }
 
     private void handleSil(Player player, String trapIdentifier) {
-        if (!player.isOp()) {
-            player.sendMessage(PREFIX + "§cBöyle bir komut bulunamadı!");
-            return;
-        }
-
         FileConfiguration config = getConfig();
         if (!config.contains("traps")) {
             player.sendMessage(PREFIX + "§cKayıtlı trap bulunamadı!");
@@ -376,7 +374,6 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         String targetKey = null;
-
         for (String key : config.getConfigurationSection("traps").getKeys(false)) {
             String name = config.getString("traps." + key + ".name", "");
             int id = config.getInt("traps." + key + ".id", -1);
@@ -388,17 +385,12 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         if (targetKey != null) {
             int trapId = config.getInt("traps." + targetKey + ".id");
-
             if (config.contains("traps." + targetKey + ".chunks")) {
                 List<String> subChunks = config.getStringList("traps." + targetKey + ".chunks");
-                for (String subKey : subChunks) {
-                    config.set("traps." + subKey, null);
-                }
+                for (String subKey : subChunks) { config.set("traps." + subKey, null); }
             }
-
             config.set("traps." + targetKey, null);
             saveConfig();
-
             player.sendMessage(PREFIX + "§aTrap #" + trapId + " tamamen silindi!");
         } else {
             player.sendMessage(PREFIX + "§cBelirtilen trap bulunamadı!");
@@ -428,7 +420,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             return;
         }
 
-        double cost = config.getDouble("trap-price", 60000.0);
+        double cost = config.getDouble("traps." + key + ".custom-price", config.getDouble("trap-price", 60000.0));
         String oldOwnerUUID = config.getString("traps." + key + ".owner");
 
         if (!oldOwnerUUID.equals("NONE") && !config.getBoolean("traps." + key + ".for-sale", false)) {
@@ -447,7 +439,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
                 Player oldOwner = Bukkit.getPlayer(UUID.fromString(oldOwnerUUID));
                 if (oldOwner != null && oldOwner.isOnline()) {
                     econ.depositPlayer(oldOwner, cost);
-                    oldOwner.sendMessage(PREFIX + "§aTrap'iniz " + player.getName() + " tarafından 60,000$ karşılığında satın alındı!");
+                    oldOwner.sendMessage(PREFIX + "§aTrap'iniz " + player.getName() + " tarafından " + cost + "$ karşılığında satın alındı!");
                 } else {
                     econ.depositPlayer(Bukkit.getOfflinePlayer(UUID.fromString(oldOwnerUUID)), cost);
                 }
@@ -457,6 +449,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         config.set("traps." + key + ".owner", player.getUniqueId().toString());
         config.set("traps." + key + ".owner-name", player.getName());
         config.set("traps." + key + ".for-sale", false);
+        config.set("traps." + key + ".custom-price", null);
         saveConfig();
 
         player.sendMessage(PREFIX + "§aBulunduğun trap §e" + cost + "$ §akarşılığında başarıyla senin oldu!");
@@ -477,30 +470,28 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             int slot = 0;
             for (Map.Entry<Integer, String> entry : sortedTraps.entrySet()) {
                 if (slot >= 54) break;
-
                 String key = entry.getValue();
                 String name = config.getString("traps." + key + ".name", "Trap #" + entry.getKey());
                 String owner = config.getString("traps." + key + ".owner", "NONE");
                 boolean isForSale = config.getBoolean("traps." + key + ".for-sale", false);
+                double price = config.getDouble("traps." + key + ".custom-price", 60000.0);
 
                 ItemStack item = new ItemStack(Material.CHEST);
                 ItemMeta meta = item.getItemMeta();
-
                 if (meta != null) {
                     if (owner.equals("NONE") || isForSale) {
                         meta.setDisplayName("§a" + name + " - [SATIŞTA]");
-                        meta.setLore(Arrays.asList("§7Durum: §aBoş / Satışta", "§7Fiyat: §e60,000$", "§eGidip /trap claim yazarak alabilirsiniz."));
+                        meta.setLore(Arrays.asList("§7Durum: §aSatışta", "§7Fiyat: §e" + price + "$", "§e/trap claim yazarak alabilirsiniz."));
                     } else {
-                        String ownerName = config.getString("traps." + key + ".owner-name", Bukkit.getOfflinePlayer(UUID.fromString(owner)).getName());
+                        String ownerName = config.getString("traps." + key + ".owner-name", "Bilinmiyor");
                         meta.setDisplayName("§c" + name + " - [DOLU]");
-                        meta.setLore(Arrays.asList("§7Durum: §cDolu (Kırmızı)", "§7Sahibi: §f" + ownerName));
+                        meta.setLore(Arrays.asList("§7Durum: §cDolu", "§7Sahibi: §f" + ownerName));
                     }
                     item.setItemMeta(meta);
                 }
                 inv.setItem(slot++, item);
             }
         }
-
         player.openInventory(inv);
     }
 
@@ -509,10 +500,8 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         if (event.getView().getTitle().equals("§8Trap Listesi")) {
             event.setCancelled(true);
             if (event.getCurrentItem() == null || !event.getCurrentItem().hasItemMeta()) return;
-
             Player player = (Player) event.getWhoClicked();
             String name = event.getCurrentItem().getItemMeta().getDisplayName();
-
             if (name.contains("SATIŞTA")) {
                 player.closeInventory();
                 player.sendMessage(PREFIX + "§eSatın almak için ilgili trap bölgesine gidip §b/trap claim §eyazabilirsiniz.");
@@ -531,6 +520,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         Location loc = player.getLocation();
+        config.set("traps." + key + ".spawn.world", loc.getWorld().getName());
         config.set("traps." + key + ".spawn.x", loc.getX());
         config.set("traps." + key + ".spawn.y", loc.getY());
         config.set("traps." + key + ".spawn.z", loc.getZ());
@@ -542,27 +532,50 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
     }
 
     private void handleSpawn(Player player) {
-        Chunk chunk = player.getLocation().getChunk();
-        String key = getMainKey(getChunkKey(chunk));
         FileConfiguration config = getConfig();
-
-        if (!config.contains("traps." + key + ".spawn")) {
-            player.sendMessage(PREFIX + "§cBu trap için henüz spawn noktası ayarlanmamış!");
+        if (!config.contains("traps")) {
+            player.sendMessage(PREFIX + "§cKayıtlı trap bulunamadı!");
             return;
         }
 
-        double x = config.getDouble("traps." + key + ".spawn.x");
-        double y = config.getDouble("traps." + key + ".spawn.y");
-        double z = config.getDouble("traps." + key + ".spawn.z");
-        float yaw = (float) config.getDouble("traps." + key + ".spawn.yaw");
-        float pitch = (float) config.getDouble("traps." + key + ".spawn.pitch");
+        String targetTrapKey = null;
+        String uuid = player.getUniqueId().toString();
 
-        Location loc = new Location(player.getWorld(), x, y, z, yaw, pitch);
+        for (String key : config.getConfigurationSection("traps").getKeys(false)) {
+            if (uuid.equals(config.getString("traps." + key + ".owner"))) {
+                targetTrapKey = key;
+                break;
+            }
+            List<String> members = config.getStringList("traps." + key + ".members");
+            if (members.contains(uuid)) {
+                targetTrapKey = key;
+                break;
+            }
+        }
+
+        if (targetTrapKey == null) {
+            player.sendMessage(PREFIX + "§cSahibi olduğunuz veya üyesi olduğunuz bir trap bulunamadı!");
+            return;
+        }
+
+        if (!config.contains("traps." + targetTrapKey + ".spawn")) {
+            player.sendMessage(PREFIX + "§cTrap için henüz spawn noktası ayarlanmamış!");
+            return;
+        }
+
+        String worldName = config.getString("traps." + targetTrapKey + ".spawn.world", "world");
+        double x = config.getDouble("traps." + targetTrapKey + ".spawn.x");
+        double y = config.getDouble("traps." + targetTrapKey + ".spawn.y");
+        double z = config.getDouble("traps." + targetTrapKey + ".spawn.z");
+        float yaw = (float) config.getDouble("traps." + targetTrapKey + ".spawn.yaw");
+        float pitch = (float) config.getDouble("traps." + targetTrapKey + ".spawn.pitch");
+
+        Location loc = new Location(Bukkit.getWorld(worldName), x, y, z, yaw, pitch);
         player.teleport(loc);
         player.sendMessage(PREFIX + "§aTrap spawn noktasına ışınlandınız.");
     }
 
-    private void handleSellRequest(Player player) {
+    private void handleSellRequest(Player player, double price) {
         Chunk chunk = player.getLocation().getChunk();
         String key = getMainKey(getChunkKey(chunk));
         FileConfiguration config = getConfig();
@@ -573,7 +586,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         sellConfirmations.add(player.getUniqueId().toString());
-        double price = config.getDouble("trap-price", 60000.0);
+        pendingSellPrices.put(player.getUniqueId(), price);
 
         TextComponent msg = new TextComponent(PREFIX + "§fTrap'inizi §e" + price + "$ §ffiyatla satmak üzeresiniz. ");
         TextComponent button = new TextComponent("§c§l[ONAYLAMAK İÇİN TIKLAYIN]");
@@ -587,7 +600,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         String uuid = player.getUniqueId().toString();
 
         if (!sellConfirmations.contains(uuid)) {
-            player.sendMessage(PREFIX + "§cAktif satış talebiniz yok. Önce §b/trap satısakoy §cyazın.");
+            player.sendMessage(PREFIX + "§cAktif satış talebiniz yok.");
             return;
         }
 
@@ -598,14 +611,23 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         if (!config.contains("traps." + key) || !config.getString("traps." + key + ".owner").equals(uuid)) {
             player.sendMessage(PREFIX + "§cBu trap size ait değil!");
             sellConfirmations.remove(uuid);
+            pendingSellPrices.remove(player.getUniqueId());
             return;
         }
 
+        double price = pendingSellPrices.getOrDefault(player.getUniqueId(), 60000.0);
         config.set("traps." + key + ".for-sale", true);
+        config.set("traps." + key + ".custom-price", price);
+        config.set("traps." + key + ".owner", "NONE");
+        config.set("traps." + key + ".owner-name", "NONE");
+        config.set("traps." + key + ".members", new ArrayList<>());
+        config.set("traps." + key + ".permissions", null);
         saveConfig();
-        sellConfirmations.remove(uuid);
 
-        player.sendMessage(PREFIX + "AxoTrap başarıyla satışa koyuldu. Biri satın aldığında 60,000$ hesabınıza gelecektir!");
+        sellConfirmations.remove(uuid);
+        pendingSellPrices.remove(player.getUniqueId());
+
+        player.sendMessage(PREFIX + "§aTrap başarıyla " + price + "$ fiyatla satışa çıkarıldı ve sahipliğinizden ayrıldı!");
     }
 
     private void handleInvite(Player player, String targetName) {
@@ -630,19 +652,16 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         TextComponent msg = new TextComponent(PREFIX + "§e" + player.getName() + " §fsizi trapine davet etti! ");
         TextComponent buttonKabul = new TextComponent("§a§l[KABUL ET] ");
         buttonKabul.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/trap kabul"));
-
         TextComponent buttonRed = new TextComponent("§c§l[REDDET]");
         buttonRed.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/trap reddet"));
 
         msg.addExtra(buttonKabul);
         msg.addExtra(buttonRed);
-
         target.spigot().sendMessage(msg);
     }
 
     private void handleAccept(Player player) {
         String uuid = player.getUniqueId().toString();
-
         if (!invites.containsKey(uuid)) {
             player.sendMessage(PREFIX + "§cBekleyen trap davetiniz yok!");
             return;
@@ -650,27 +669,23 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
 
         String key = invites.remove(uuid);
         FileConfiguration config = getConfig();
-
         List<String> members = config.getStringList("traps." + key + ".members");
         if (!members.contains(uuid)) {
             members.add(uuid);
             config.set("traps." + key + ".members", members);
             saveConfig();
         }
-
         player.sendMessage(PREFIX + "§aDavet kabul edildi! Artık bu trap'e üyesiniz.");
     }
 
     private void handleReject(Player player) {
         String uuid = player.getUniqueId().toString();
-
         if (!invites.containsKey(uuid)) {
-            player.sendMessage(PREFIX + "§cReddedilecek bekleyen trap davetiniz yok!");
+            player.sendMessage(PREFIX + "§cReddedilecek davet yok!");
             return;
         }
-
         invites.remove(uuid);
-        player.sendMessage(PREFIX + "§cTrap davetini reddettiniz.");
+        player.sendMessage(PREFIX + "§cTrap daveti reddedildi.");
     }
 
     private void handleLeave(Player player) {
@@ -684,9 +699,8 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         String uuid = player.getUniqueId().toString();
-
         if (uuid.equals(config.getString("traps." + key + ".owner"))) {
-            player.sendMessage(PREFIX + "§cTrap sahibi ayrılamaz! Trapi /trap satısakoy ile satabilirsiniz.");
+            player.sendMessage(PREFIX + "§cTrap sahibi direkt ayrılamaz! Satışa koymak için §b/trap satısakoy <fiyat> §ckullanın.");
             return;
         }
 
@@ -744,12 +758,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         Player target = Bukkit.getPlayer(targetName);
-        String targetUUID = target != null ? target.getUniqueId().toString() : Bukkit.getOfflinePlayer(targetName).getUniqueId().toString();
-
-        if (targetUUID.equals(player.getUniqueId().toString())) {
-            player.sendMessage(PREFIX + "§cKendinizi trap'ten atamazsınız!");
-            return;
-        }
+        String targetUUID = target != null ? target.getUniqueId().toString() : "";
 
         List<String> members = config.getStringList("traps." + key + ".members");
         if (members.contains(targetUUID)) {
@@ -774,25 +783,17 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
 
         Player target = Bukkit.getPlayer(targetName);
-        if (target == null) {
-            player.sendMessage(PREFIX + "§cOyuncu bulunamadı!");
-            return;
-        }
+        if (target == null) { player.sendMessage(PREFIX + "§cOyuncu bulunamadı!"); return; }
 
         String targetUUID = target.getUniqueId().toString();
         List<String> members = config.getStringList("traps." + key + ".members");
+        if (!members.contains(targetUUID)) { player.sendMessage(PREFIX + "§cBu oyuncu üye değil!"); return; }
 
-        if (!members.contains(targetUUID)) {
-            player.sendMessage(PREFIX + "§cBu oyuncu trap üyesi değil!");
-            return;
-        }
-
-        String permName = perm.toLowerCase();
         boolean enable = state.equalsIgnoreCase("ac") || state.equalsIgnoreCase("aç");
-        config.set("traps." + key + ".permissions." + targetUUID + "." + permName, enable);
+        config.set("traps." + key + ".permissions." + targetUUID + "." + perm.toLowerCase(), enable);
         saveConfig();
 
-        player.sendMessage(PREFIX + "§e" + target.getName() + " §fiçin §b" + permName + " §fyetkisi: " + (enable ? "§aAÇIK" : "§cKAPALI"));
+        player.sendMessage(PREFIX + "§e" + target.getName() + " §fiçin §b" + perm + " §fyetkisi: " + (enable ? "§aAÇIK" : "§cKAPALI"));
     }
 
     private void handleYetkiList(Player player, String targetName) {
@@ -801,10 +802,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         FileConfiguration config = getConfig();
 
         Player target = Bukkit.getPlayer(targetName);
-        if (target == null) {
-            player.sendMessage(PREFIX + "§cOyuncu bulunamadı!");
-            return;
-        }
+        if (target == null) { player.sendMessage(PREFIX + "§cOyuncu bulunamadı!"); return; }
 
         String targetUUID = target.getUniqueId().toString();
         player.sendMessage("§b--- " + target.getName() + " YETKİLERİ ---");
@@ -863,8 +861,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         boolean pvpState = status.equalsIgnoreCase("ac") || status.equalsIgnoreCase("aç");
         config.set("traps." + key + ".pvp", pvpState);
         saveConfig();
-
-        player.sendMessage(PREFIX + "Bu trap içinde PvP: " + (pvpState ? "§aAÇIK" : "§cKAPALI"));
+        player.sendMessage(PREFIX + "PvP durumu: " + (pvpState ? "§aAÇIK" : "§cKAPALI"));
     }
 
     private void handleDeposit(Player player, String amountStr) {
@@ -877,17 +874,13 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             if (amount <= 0) throw new NumberFormatException();
 
             if (econ != null) {
-                if (econ.getBalance(player) < amount) {
-                    player.sendMessage(PREFIX + "§cYeterli paranız yok!");
-                    return;
-                }
+                if (econ.getBalance(player) < amount) { player.sendMessage(PREFIX + "§cYeterli paranız yok!"); return; }
                 econ.withdrawPlayer(player, amount);
             }
 
             double currentBank = config.getDouble("traps." + key + ".bank", 0.0);
             config.set("traps." + key + ".bank", currentBank + amount);
             saveConfig();
-
             player.sendMessage(PREFIX + "Kasaya §e" + amount + "$ §fyatırıldı.");
         } catch (NumberFormatException e) {
             player.sendMessage(PREFIX + "§cGeçerli bir miktar girin!");
@@ -909,10 +902,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             if (amount <= 0) throw new NumberFormatException();
 
             double currentBank = config.getDouble("traps." + key + ".bank", 0.0);
-            if (currentBank < amount) {
-                player.sendMessage(PREFIX + "§cKasada yeterli para yok!");
-                return;
-            }
+            if (currentBank < amount) { player.sendMessage(PREFIX + "§cKasada yeterli para yok!"); return; }
 
             config.set("traps." + key + ".bank", currentBank - amount);
             saveConfig();
@@ -924,23 +914,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         }
     }
 
-    @EventHandler
-    public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (event.getEntity() instanceof Player && event.getDamager() instanceof Player) {
-            Player attacker = (Player) event.getDamager();
-            Chunk chunk = event.getEntity().getLocation().getChunk();
-            String key = getMainKey(getChunkKey(chunk));
-            FileConfiguration config = getConfig();
-
-            if (config.contains("traps." + key)) {
-                boolean pvpOpen = config.getBoolean("traps." + key + ".pvp", true);
-                if (!pvpOpen) {
-                    event.setCancelled(true);
-                    attacker.sendMessage(PREFIX + "§cBu trapda pvp kapali");
-                }
-            }
-        }
-    }
+    // --- GÜVENLİK VE EVENT KONTROLLERİ ---
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
@@ -954,11 +928,9 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
             String trapName = config.getString("traps." + key + ".name", "Trap");
             int hp = config.getInt("traps." + key + ".health", 5000);
             int maxHp = config.getInt("traps." + key + ".max-health", 5000);
-
-            String ownerText = owner.equals("NONE") ? "§eSahibi Yok" : "§b" + config.getString("traps." + key + ".owner-name", Bukkit.getOfflinePlayer(UUID.fromString(owner)).getName());
+            String ownerText = owner.equals("NONE") ? "§eSahibi Yok" : "§b" + config.getString("traps." + key + ".owner-name", "Sahibi Var");
 
             String actionBarMsg = "§c[§eA§ax§bo§dT§er§aa§bp§c] §e🛡 " + trapName + " §8| §fSahibi: " + ownerText + " §8| §aCan: §e" + hp + "/" + maxHp;
-
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(actionBarMsg));
         }
 
@@ -982,7 +954,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         if (config.contains("traps." + key)) {
             if (!hasSpecificPerm(event.getPlayer(), chunk, "blokkir")) {
                 event.setCancelled(true);
-                event.getPlayer().sendMessage(PREFIX + "§cBu trapde blok kırma yetkiniz yok!");
+                event.getPlayer().sendMessage(PREFIX + "§cÜyesi olmadığınız trapte blok kırma yetkiniz yok!");
             }
         }
     }
@@ -996,7 +968,7 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         if (config.contains("traps." + key)) {
             if (!hasSpecificPerm(event.getPlayer(), chunk, "blokkoy")) {
                 event.setCancelled(true);
-                event.getPlayer().sendMessage(PREFIX + "§cBu trapde blok koyma yetkiniz yok!");
+                event.getPlayer().sendMessage(PREFIX + "§cÜyesi olmadığınız trapte blok koyma yetkiniz yok!");
             }
         }
     }
@@ -1013,13 +985,30 @@ public class Main extends JavaPlugin implements CommandExecutor, Listener, TabCo
         if (config.contains("traps." + key)) {
             Material type = clicked.getType();
             boolean isChest = type.name().contains("CHEST") || type.name().contains("SHULKER");
-            boolean isGate = type.name().contains("FENCE") || type.name().contains("DOOR") || type.name().contains("TRAPDOOR");
+            boolean isGate = type.name().contains("FENCE") || type.name().contains("DOOR") || type.name().contains("TRAPDOOR") || type.name().contains("BUTTON") || type.name().contains("LEVER");
 
             if (isChest || isGate) {
                 if (!hasSpecificPerm(event.getPlayer(), chunk, "cit")) {
                     event.setCancelled(true);
-                    event.getPlayer().sendMessage(PREFIX + "§cBu trapde kapı, çit veya sandık açma yetkiniz yok!");
+                    event.getPlayer().sendMessage(PREFIX + "§cÜyesi olmadığınız trapte etkileşime geçemezsiniz!");
                 }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onEntityExplode(EntityExplodeEvent event) {
+        FileConfiguration config = getConfig();
+        for (Block block : new ArrayList<>(event.blockList())) {
+            Chunk chunk = block.getChunk();
+            String key = getMainKey(getChunkKey(chunk));
+            if (config.contains("traps." + key)) {
+                // Trap canını azaltma mantığı
+                int currentHp = config.getInt("traps." + key + ".health", 5000);
+                currentHp -= 100; // Patlama başına hasar
+                if (currentHp < 0) currentHp = 0;
+                config.set("traps." + key + ".health", currentHp);
+                saveConfig();
             }
         }
     }
