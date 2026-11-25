@@ -1,11 +1,14 @@
-name: TrapPlugin
-version: 1.0.0
+name: AxoTrap
+version: 1.2
 main: com.craftaxo.trapplugin.Main
-api-version: 1.20
-softdepend: [Vault, DecentHolograms]
-description: AxoCrafT Gelismis Trap Yonetim Eklentisi.
+api-version: 1.16
+depend: [Vault]
 commands:
   trap:
-    description: Trap yonetim komutlari
-    usage: /trap
+    description: Ana trap komutu
+  trapadmin:
+    description: Admin trap ve L-trap olusturma komutlari
+permissions:
+  trapplugin.trapadmin.create:
+    default: op
 
